@@ -50,10 +50,11 @@ namespace ReadPDF
                 var files = d.GetFiles("*.pdf");
                 if (files.Length == 0)
                     throw new Exception("No PDF file found");
-                
-                WriteExcel(files, filename);
-                
-                MessageBox.Show("Saved " + files.Length + " record(s) to " + filename);
+
+                int success = WriteExcel(files, filename);
+                int fail = files.Length - success;
+
+                MessageBox.Show("Saved " + success + " record(s) to " + filename + (fail > 0 ? "\n" + fail + " PDF file(s) fail to read." : "."));
                 Process.Start(txtOut.Text);
             }
             catch (Exception ex)
@@ -104,32 +105,30 @@ namespace ReadPDF
 
         private void SetValueToCell(Range cell, PdfFormField field)
         {
+            if (field == null)
+                return;
             if (field is PdfButtonFormField)
             {
-                if (field.GetValue() == null)
+                string trueValue = "Y", falseValue = "N";
+                string v;
+
+                if (field.GetValue() == null || (v = field.GetValueAsString()) == "Off")
                 {
-                    cell.Value = "N";
-                    cell.Font.Color = Color.Red;
-                    return;
-                }
-                
-                string v = field.GetValueAsString();
-                if (v == "Off")
-                {
-                    cell.Value = "N";
+                    cell.Value = falseValue;
                     cell.Font.Color = Color.Red;
                     return;
                 }
                 if (v == "Yes" || v.Length == 0)
-                    cell.Value = "Y";
+                    cell.Value = trueValue;
                 else
                     cell.Value = v;
             }
             else
             {
-                cell.Value = field.GetValueAsString().Replace("\r","\n");
+                cell.Value = field.GetValueAsString().Replace("\r", "\n");
             }
         }
+
         private static string ToLiteral(string input)
         {
             using (var writer = new StringWriter())
@@ -141,49 +140,69 @@ namespace ReadPDF
                 }
             }
         }
-        private void WriteExcel(FileInfo[] files, string filename)
+        private int WriteExcel(FileInfo[] files, string filename)
+        {
+            return WriteExcel(files, filename, null);
+        }
+        private int WriteExcel(FileInfo[] files, string filename, string[] headers)
         {
             Microsoft.Office.Interop.Excel.Application excelApp = new Microsoft.Office.Interop.Excel.Application();
 
             Workbook workbook = excelApp.Workbooks.Add();
             Worksheet worksheet = workbook.Worksheets[1];
 
-            string[] headers = null;
-            int cell;
+            int cell, row = 2, failCount = 0;
             for (int i = 0; i < files.Length; i++)
             {
                 var file = files[i];
                 PdfReader reader = new PdfReader(file.FullName);
                 PdfDocument pdfDoc = new PdfDocument(reader);
-                PdfAcroForm form = PdfAcroForm.GetAcroForm(pdfDoc, true);
-                IDictionary<string, PdfFormField> fields = form.GetFormFields();
-
-                if (i == 0)
+                try
                 {
-                    headers = GetHeaders(fields);
-                    worksheet.Cells[1, 1] = "File";
+                    PdfAcroForm form = PdfAcroForm.GetAcroForm(pdfDoc, false);
+                    IDictionary<string, PdfFormField> fields = form.GetFormFields();
+
+                    if (headers == null)
+                        headers = GetHeaders(fields);
+
+                    worksheet.Cells[row, 1] = file.Name;
                     cell = 1;
                     foreach (string header in headers)
                     {
-                        worksheet.Cells[1, cell + 1] = header;
+                        PdfFormField field = form.GetField(header);
+                        SetValueToCell(worksheet.Cells[row, cell + 1], field);
                         cell++;
                     }
+                    row++;
                 }
-
-                worksheet.Cells[i + 2, 1] = file.Name;
-                cell = 1;
-                foreach (string header in headers)
+                catch (Exception e)
                 {
-                    PdfFormField field = form.GetField(header);
-                    SetValueToCell(worksheet.Cells[i + 2, cell + 1], field);
-                    cell++;
+                    failCount++;
                 }
-                pdfDoc.Close();
+                finally
+                {
+                    pdfDoc.Close();
+                }
             }
+            //header
+            worksheet.Cells[1, 1] = "File";
+            cell = 1;
+            foreach (string header in headers)
+            {
+                worksheet.Cells[1, cell + 1] = header;
+                cell++;
+            }
+            //format
+            Range allCells = worksheet.Cells;
+            allCells.VerticalAlignment = XlVAlign.xlVAlignTop;
             worksheet.Columns.AutoFit();
-            filename += ".xlsx";
-            workbook.Close(true, txtOut.Text + "\\" + filename);
+
+            //save and quit
+            workbook.WebOptions.Encoding = Microsoft.Office.Core.MsoEncoding.msoEncodingUTF8;
+            workbook.Close(true, txtOut.Text + "\\" + filename + ".xlsx");
             excelApp.Quit();
+
+            return files.Length - failCount;
         }
     }
 }
