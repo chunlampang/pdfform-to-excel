@@ -89,8 +89,10 @@ namespace ReadPDF
             }
         }
 
-        private string[] GetHeaders(IDictionary<string, PdfFormField> fields)
+        private string[] GetHeaders(PdfAcroForm form)
         {
+            
+            IDictionary<string, PdfFormField> fields = form.GetFormFields();
             List<string> headers = new List<string>();
             foreach (string key in fields.Keys)
             {
@@ -163,7 +165,7 @@ namespace ReadPDF
                     IDictionary<string, PdfFormField> fields = form.GetFormFields();
 
                     if (headers == null)
-                        headers = GetHeaders(fields);
+                        headers = GetHeaders(form);
 
                     worksheet.Cells[row, 1] = file.Name;
                     cell = 1;
@@ -198,7 +200,6 @@ namespace ReadPDF
             worksheet.Columns.AutoFit();
 
             //save and quit
-            workbook.WebOptions.Encoding = Microsoft.Office.Core.MsoEncoding.msoEncodingUTF8;
             workbook.Close(true, txtOut.Text + "\\" + filename + ".xlsx");
             excelApp.Quit();
 
